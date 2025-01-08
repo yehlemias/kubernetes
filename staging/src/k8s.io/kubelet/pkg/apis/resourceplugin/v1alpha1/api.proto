@@ -164,6 +164,13 @@ message RemovePodRequest {
 message RemovePodResponse {
 }
 
+message RemovePodListRequest {
+    repeated string pod_list = 1;
+}
+
+message RemovePodListResponse {
+}
+
 message GetResourcesAllocationRequest {
 }
 
@@ -311,4 +318,8 @@ service ResourcePlugin {
 	// before each container start. Resource plugin can run resource specific operations
 	// such as resetting the resource before making resources available to the container
 	rpc PreStartContainer(PreStartContainerRequest) returns (PreStartContainerResponse) {}
+
+    // RemovePodList notifies the resource plugin that the pod_list has beed deleted,
+    // and the plugin should do some clear-up work.
+    rpc RemovePodList(RemovePodListRequest) returns (RemovePodListResponse) {}
 }
