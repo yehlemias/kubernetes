@@ -204,6 +204,10 @@ func (m *MockEndpoint) removePod(ctx context.Context, removePodRequest *pluginap
 	return nil, nil
 }
 
+func (m *MockEndpoint) removePodList(ctx context.Context, removePodListRequest *pluginapi.RemovePodListRequest) (*pluginapi.RemovePodListResponse, error) {
+	return nil, nil
+}
+
 func (m *MockEndpoint) getResourceAllocation(ctx context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
 	if m.resourceAlloc != nil {
 		return m.resourceAlloc(ctx, request)

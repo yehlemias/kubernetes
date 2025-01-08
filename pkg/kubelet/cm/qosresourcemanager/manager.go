@@ -28,7 +28,9 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	rpcstatus "google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
 
 	"github.com/opencontainers/selinux/go-selinux"
@@ -1059,36 +1061,7 @@ func (m *ManagerImpl) UpdateAllocatedResources() {
 	podsToBeRemovedList := podsToBeRemoved.UnsortedList()
 	klog.V(3).Infof("[qosresourcemanager] pods to be removed: %v", podsToBeRemovedList)
 
-	m.mutex.Lock()
-	for _, podUID := range podsToBeRemovedList {
-
-		allSuccess := true
-		for resourceName, eI := range m.endpoints {
-			if eI.e.isStopped() {
-				klog.Warningf("[qosresourcemanager] skip removePods: %+v of resource: %s, because plugin stopped", podsToBeRemovedList, resourceName)
-				continue
-			}
-
-			ctx := metadata.NewOutgoingContext(context.Background(), metadata.New(nil))
-			m.mutex.Unlock()
-			_, err := eI.e.removePod(ctx, &pluginapi.RemovePodRequest{
-				PodUid: podUID,
-			})
-			m.mutex.Lock()
-
-			if err != nil {
-				allSuccess = false
-				klog.Errorf("[qosresourcemanager.UpdateAllocatedResources] remove pod: %s in %s endpoint failed with error: %v", podUID, resourceName, err)
-			}
-		}
-
-		if allSuccess {
-			m.podResources.deletePod(podUID)
-		} else {
-			klog.Warningf("[qosresourcemanager.UpdateAllocatedResources] pod: %s should be deleted, but it's not removed in all plugins, so keep it temporarily", podUID)
-		}
-	}
-	m.mutex.Unlock()
+	m.removePods(podsToBeRemovedList)
 
 	err := m.writeCheckpoint()
 
@@ -1418,4 +1391,70 @@ func (m *ManagerImpl) isNodeResource(resourceName string) bool {
 	// currently we think we only report quantity for scalar resource to node,
 	// if there is no allocation record declaring it as node resource explicitly.
 	return schedutil.IsScalarResourceName(v1.ResourceName(resourceName))
+}
+
+func (m *ManagerImpl) removePods(podsToBeRemovedList []string) {
+	if err := m.removePodsStrictlyByList(podsToBeRemovedList); err != nil {
+		s, ok := rpcstatus.FromError(err)
+		if !ok || s.Code() != codes.Unimplemented {
+			return
+		}
+	}
+
+	m.mutex.Lock()
+	for _, podUID := range podsToBeRemovedList {
+
+		allSuccess := true
+		for resourceName, eI := range m.endpoints {
+			if eI.e.isStopped() {
+				klog.Warningf("[qosresourcemanager.UpdateAllocatedResources] skip removePods: %+v of resource: %s, because plugin stopped", podsToBeRemovedList, resourceName)
+				continue
+			}
+
+			ctx := metadata.NewOutgoingContext(context.Background(), metadata.New(nil))
+			m.mutex.Unlock()
+			_, err := eI.e.removePod(ctx, &pluginapi.RemovePodRequest{
+				PodUid: podUID,
+			})
+			m.mutex.Lock()
+
+			if err != nil {
+				allSuccess = false
+				klog.Errorf("[qosresourcemanager.UpdateAllocatedResources] remove pod: %s in %s endpoint failed with error: %v", podUID, resourceName, err)
+			}
+		}
+
+		if allSuccess {
+			m.podResources.deletePod(podUID)
+		} else {
+			klog.Warningf("[qosresourcemanager.UpdateAllocatedResources] pod: %s should be deleted, but it's not removed in all plugins, so keep it temporarily", podUID)
+		}
+	}
+	m.mutex.Unlock()
+}
+
+func (m *ManagerImpl) removePodsStrictlyByList(podsToBeRemovedList []string) error {
+	m.mutex.Lock()
+	for resourceName, eI := range m.endpoints {
+		if eI.e.isStopped() {
+			klog.Warningf("[qosresourcemanager.UpdateAllocatedResources] skip removePodsStrictlyByList: %+v of resource: %s, because plugin stopped", podsToBeRemovedList, resourceName)
+			continue
+		}
+		ctx := metadata.NewOutgoingContext(context.Background(), metadata.New(nil))
+		m.mutex.Unlock()
+		_, err := eI.e.removePodList(ctx, &pluginapi.RemovePodListRequest{
+			PodList: podsToBeRemovedList,
+		})
+		if err != nil {
+			klog.Errorf("[qosresourcemanager.UpdateAllocatedResources] remove podList: %+v in %s endpoint failed with error: %v", podsToBeRemovedList, resourceName, err)
+			return err
+		}
+		m.mutex.Lock()
+	}
+
+	for _, podUID := range podsToBeRemovedList {
+		m.podResources.deletePod(podUID)
+	}
+	m.mutex.Unlock()
+	return nil
 }

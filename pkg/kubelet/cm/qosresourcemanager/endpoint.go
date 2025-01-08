@@ -47,6 +47,7 @@ type endpoint interface {
 	preStartContainer(pod *v1.Pod, container *v1.Container) (*pluginapi.PreStartContainerResponse, error)
 	getResourceAllocation(c context.Context, request *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error)
 	removePod(c context.Context, removePodRequest *pluginapi.RemovePodRequest) (*pluginapi.RemovePodResponse, error)
+	removePodList(c context.Context, removePodListRequest *pluginapi.RemovePodListRequest) (*pluginapi.RemovePodListResponse, error)
 	isStopped() bool
 	stopGracePeriodExpired() bool
 }
@@ -205,6 +206,15 @@ func (e *endpointImpl) removePod(c context.Context, removePodRequest *pluginapi.
 	ctx, cancel := context.WithTimeout(c, pluginapi.KubeletResourcePluginRemovePodRPCTimeoutInSecs*time.Second)
 	defer cancel()
 	return e.client.RemovePod(ctx, removePodRequest)
+}
+
+func (e *endpointImpl) removePodList(c context.Context, removePodListRequest *pluginapi.RemovePodListRequest) (*pluginapi.RemovePodListResponse, error) {
+	if e.isStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(c, pluginapi.KubeletResourcePluginRemovePodRPCTimeoutInSecs*time.Second)
+	defer cancel()
+	return e.client.RemovePodList(ctx, removePodListRequest)
 }
 
 // dial establishes the gRPC communication with the registered resource plugin. https://godoc.org/google.golang.org/grpc#Dial
